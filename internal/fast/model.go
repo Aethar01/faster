@@ -37,6 +37,11 @@ var (
 
 type tickMsg time.Time
 
+type latencyMsg struct {
+	latency time.Duration
+	err     error
+}
+
 func tickCmd(t time.Time) tea.Msg {
 	return tickMsg(t)
 }
@@ -55,6 +60,7 @@ type model struct {
 	speeds     []float64
 	peak       float64
 	client     string
+	latency    time.Duration
 	server     string
 	showClient bool
 	showServer bool
@@ -85,12 +91,14 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(tea.Tick(tickInterval, tickCmd), m.measure)
 }
 
-// measure kicks off the parallel downloads that feed our byte counter.
+// measure captures unloaded latency before starting the parallel downloads that
+// feed our byte counter.
 func (m model) measure() tea.Msg {
+	latency, err := ping(m.ctx, m.targets)
 	for _, target := range m.targets {
 		go download(m.ctx, target.URL, m.bytes)
 	}
-	return nil
+	return latencyMsg{latency: latency, err: err}
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -101,6 +109,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			m.cancel()
 			return m, tea.Quit
+		}
+
+	case latencyMsg:
+		if msg.err == nil {
+			m.latency = msg.latency
 		}
 
 	case tickMsg:
@@ -137,6 +150,13 @@ func (m model) View() string {
 	}
 
 	var s strings.Builder
+	if m.latency > 0 {
+		s.WriteString(metaStyle.Render(fmt.Sprintf("ping %.0f ms", float64(m.latency)/float64(time.Millisecond))))
+	} else {
+		s.WriteString(metaStyle.Render("ping -- ms"))
+	}
+	s.WriteString("\n")
+
 	// Cap each readout at 999.9 and switch to Gbps beyond that, keeping a fixed
 	// width so the unit, sparkline, and peak never shift horizontally.
 	speed, unit := scale(m.speed)
@@ -163,7 +183,6 @@ func (m model) View() string {
 	if m.showServer && m.server != "" {
 		s.WriteString(metaStyle.Render("server " + m.server))
 	}
-
 	style := baseStyle
 	if m.done {
 		style = style.PaddingBottom(2)

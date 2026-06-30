@@ -15,7 +15,10 @@ import (
 	"time"
 )
 
-const downloadPayloadBytes = 25 * 1024 * 1024
+const (
+	downloadPayloadBytes = 25 * 1024 * 1024
+	latencyRequests      = 5
+)
 
 type target struct {
 	Name     string   `json:"name"`
@@ -109,7 +112,6 @@ func speedtestConfig(count int, token string, preference ipPreference) (testConf
 	if err != nil {
 		return testConfig{}, err
 	}
-
 	var response testConfig
 	if err := json.Unmarshal(body, &response); err != nil {
 		return testConfig{}, err
@@ -117,7 +119,6 @@ func speedtestConfig(count int, token string, preference ipPreference) (testConf
 	if len(response.Targets) == 0 {
 		return testConfig{}, fmt.Errorf("no speed test targets")
 	}
-
 	return response, nil
 }
 
@@ -197,13 +198,66 @@ func download(ctx context.Context, url string, total *atomic.Int64) {
 	}
 }
 
+func ping(ctx context.Context, targets []target) (time.Duration, error) {
+	if len(targets) == 0 {
+		return 0, fmt.Errorf("no speed test targets")
+	}
+
+	best := time.Duration(1<<63 - 1)
+	var lastErr error
+	for i := 0; i < latencyRequests; i++ {
+		duration, err := pingTarget(ctx, targets[i%len(targets)].URL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if duration < best {
+			best = duration
+		}
+	}
+	if best == time.Duration(1<<63-1) {
+		return 0, lastErr
+	}
+	return best, nil
+}
+
+func pingTarget(ctx context.Context, url string) (time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latencyURL(url), nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+
+	start := time.Now()
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("latency request failed: %s", resp.Status)
+	}
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return 0, err
+	}
+	return time.Since(start), nil
+}
+
 func downloadURL(raw string) string {
+	return rangeURL(raw, downloadPayloadBytes-1)
+}
+
+func latencyURL(raw string) string {
+	return rangeURL(raw, 0)
+}
+
+func rangeURL(raw string, end int) string {
 	u, err := url.Parse(raw)
 	if err != nil || !strings.HasSuffix(u.Path, "/speedtest") {
 		return raw
 	}
 
-	u.Path = strings.TrimSuffix(u.Path, "/speedtest") + fmt.Sprintf("/speedtest/range/0-%d", downloadPayloadBytes-1)
+	u.Path = strings.TrimSuffix(u.Path, "/speedtest") + fmt.Sprintf("/speedtest/range/0-%d", end)
 	return u.String()
 }
 

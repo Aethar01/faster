@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math"
 	"net"
 	"os"
 	"strings"
@@ -27,22 +26,9 @@ const (
 	// sparkWidth is the width, in cells, of the speed sparkline.
 	sparkWidth = 20
 
-	// latencyTimeout bounds the ping probe so a stalled request can't hang the
-	// ping phase indefinitely.
+	// latencyTimeout bounds the latency probe so a stalled request can't hang
+	// the test indefinitely.
 	latencyTimeout = 5 * time.Second
-
-	// pingWidth is the width, in cells, of the ping-pong animation track.
-	pingWidth = 12
-
-	// pingDuration is the minimum time the ping-pong animation plays, so it
-	// stays visible even when the latency probe returns quickly.
-	pingDuration = 2 * time.Second
-
-	// pingStep is how long the ball dwells on each braille sub-column.
-	pingStep = tickInterval
-
-	// pingBounces is how many arcs the ball hops as it crosses the track.
-	pingBounces = 3
 )
 
 const (
@@ -77,10 +63,8 @@ func tickCmd(t time.Time) tea.Msg {
 type Model struct {
 	targets []string
 
-	ping         time.Duration
-	pingStart    time.Time
-	pingMeasured bool
-	pingDone     bool
+	ping     time.Duration
+	pingDone bool
 
 	dlBytes  *atomic.Int64
 	dlCtx    context.Context
@@ -105,15 +89,14 @@ type Model struct {
 
 func NewModel(targets []string) Model {
 	return Model{
-		targets:   targets,
-		pingStart: time.Now(),
-		dlBytes:   &atomic.Int64{},
-		ulBytes:   &atomic.Int64{},
+		targets: targets,
+		dlBytes: &atomic.Int64{},
+		ulBytes: &atomic.Int64{},
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(tea.Tick(tickInterval, tickCmd), m.measurePing)
+	return tea.Tick(tickInterval, tickCmd)
 }
 
 // measureDownload kicks off the parallel downloads that feed our byte counter
@@ -138,8 +121,8 @@ type pingMsg struct {
 	err error
 }
 
-// measurePing probes the first target's round-trip time in the background so
-// the ping-pong animation can play while we wait for the result.
+// measurePing probes the first target's round-trip time once the download and
+// upload have finished, and the result is revealed in the summary.
 func (m Model) measurePing() tea.Msg {
 	if len(m.targets) == 0 {
 		return pingMsg{err: errors.New("no targets")}
@@ -166,22 +149,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pingMsg:
-		m.pingMeasured = true
+		m.pingDone = true
 		if msg.err == nil {
 			m.ping = msg.d
 		}
-		return m, nil
+		return m, tea.Quit
 
 	case tickMsg:
-		if !m.pingDone {
-			// Hold on the ping-pong animation until the probe finishes and it
-			// has had a moment to play, then kick off the download.
-			if m.pingMeasured && time.Since(m.pingStart) >= pingDuration {
-				m.pingDone = true
-				m.dlStart = time.Now()
-				m.dlCtx, m.dlCancel = context.WithTimeout(context.Background(), duration)
-				return m, tea.Batch(tea.Tick(tickInterval, tickCmd), m.measureDownload)
-			}
+		if m.dlCtx == nil {
+			// First tick: kick off the download that feeds the byte counter.
+			m.dlStart = time.Now()
+			m.dlCtx, m.dlCancel = context.WithTimeout(context.Background(), duration)
+			return m, tea.Batch(tea.Tick(tickInterval, tickCmd), m.measureDownload)
 		} else if !m.dlDone {
 			elapsed := time.Since(m.dlStart)
 			m.dlSpeed = mbps(m.dlBytes.Load(), elapsed)
@@ -212,7 +191,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.ulCancel != nil {
 					m.ulCancel()
 				}
-				return m, tea.Quit
+				// Transfers are done; measure ping last and reveal it in the
+				// summary.
+				return m, m.measurePing
 			}
 		}
 
@@ -246,45 +227,6 @@ func renderRow(label string, currentSpeed float64, speeds []float64, peak float6
 	return s.String()
 }
 
-// pingPong renders a ball hopping along the track in little arcs. Braille gives
-// two sub-columns and four levels per cell, so the ball can bounce up and down
-// as it crosses, animating the wait while we measure latency.
-func pingPong(frame, width int) string {
-	sub := 2 * width
-	span := 2 * (sub - 1)
-	if span < 1 {
-		span = 1
-	}
-	x := frame % span
-	if x >= sub {
-		x = span - x
-	}
-	// Hop height follows a run of arcs, peaking between the ends of each bounce.
-	height := math.Abs(math.Sin(float64(x) / float64(sub-1) * pingBounces * math.Pi))
-	level := int((1-height)*3 + 0.5)
-	cells := make([]byte, width)
-	cells[x/2] |= dots[level][x%2]
-	var b strings.Builder
-	for _, bits := range cells {
-		if bits == 0 {
-			b.WriteByte(' ')
-		} else {
-			b.WriteRune(rune(0x2800 + int(bits)))
-		}
-	}
-	return b.String()
-}
-
-// pingFrame is the current animation frame, advancing one cell per pingStep.
-func (m Model) pingFrame() int {
-	return int(time.Since(m.pingStart) / pingStep)
-}
-
-// renderPing renders the ping label next to the ping-pong animation.
-func renderPing(frame int) string {
-	return labelStyle.Render(pingLabel+" ") + pingPong(frame, pingWidth)
-}
-
 // renderSummary renders the final one-line recap: download, upload and ping.
 func renderSummary(m Model) string {
 	sep := unitStyle.Render(" • ")
@@ -313,15 +255,12 @@ func (m Model) View() string {
 
 	var s strings.Builder
 	switch {
-	case !m.pingDone:
-		// Measuring latency: play the ping-pong animation; the measured value
-		// is revealed in the summary once every test is done.
-		s.WriteString(renderPing(m.pingFrame()))
 	case !m.dlDone:
 		// Downloading: show only the download reading.
 		s.WriteString(renderRow(downloadLabel, m.dlSpeed, m.dlSpeeds, m.dlPeak, dlSparkStyle))
-	case !m.ulDone:
-		// Uploading: swap the download reading out for the upload one.
+	case !m.pingDone:
+		// Uploading, then holding the final upload reading while we measure
+		// ping after the transfers finish.
 		s.WriteString(renderRow(uploadLabel, m.ulSpeed, m.ulSpeeds, m.ulPeak, ulSparkStyle))
 	default:
 		// Everything done: one-line recap of download, upload and ping.
@@ -329,7 +268,7 @@ func (m Model) View() string {
 	}
 
 	style := baseStyle
-	if m.ulDone {
+	if m.pingDone {
 		style = style.PaddingBottom(2)
 	}
 	return style.Render(s.String())

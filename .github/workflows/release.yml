@@ -25,14 +25,14 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME}"
-          ldflags="-s -w -X github.com/Aethar01/faster/internal/fast.version=${version}"
+          ldflags="-s -w -X github.com/Aethar01/faster/internal/faster.version=${version}"
           mkdir -p dist
 
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
             os="${target%/*}"
             arch="${target#*/}"
-            name="fast_${version}_${os}_${arch}"
-            binary="${name}/fast"
+            name="faster_${version}_${os}_${arch}"
+            binary="${name}/faster"
             if [ "${os}" = "windows" ]; then
               binary="${binary}.exe"
             fi

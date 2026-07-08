@@ -1,11 +1,11 @@
 <p align="center">
-	<img src="vhs/faster.gif" alt="VHS recording of fast">
+	<img src="vhs/faster.gif" alt="VHS recording of faster">
 	<a href="https://vhs.charm.sh">
 		<img src="https://stuff.charm.sh/vhs/badge.svg">
 	</a>
 </p>
 
-# Faster - fork of Fast
+# Faster
 
 This repo is a fork of [fast](https://github.com/maaslalani/fast)
 
@@ -15,7 +15,7 @@ Test your internet speed from the command-line, powered by [fast.com](https://fa
 
 ```
 Usage:
-  fast [flags]
+  faster [flags]
 
 Flags:
   -client
@@ -50,10 +50,10 @@ Keyboard:
   q, esc, ctrl+c    Quit
 ```
 
-`fast` measures your upload and download speed against the nearest Netflix Open Connect
+`faster` measures your upload and download speed against the nearest Netflix Open Connect
 servers and reports it in megabits per second, right inline in your terminal,
 along with your ping to that server.
 
 ## License
 
-[MIT](https://github.com/maaslalani/fast/blob/master/LICENSE)
+[MIT](https://github.com/Aethar01/faster/blob/main/LICENSE)

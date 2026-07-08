@@ -1,4 +1,4 @@
-package fast
+package faster
 
 import (
 	"bytes"
@@ -40,7 +40,7 @@ func Run(args []string, stdout io.Writer) error {
 		return err
 	}
 	if opts.version {
-		_, err := fmt.Fprintf(stdout, "fast %s\n", version)
+		_, err := fmt.Fprintf(stdout, "faster %s\n", version)
 		return err
 	}
 
@@ -108,13 +108,13 @@ func defaultOptions() options {
 }
 
 func newFlagSet(output io.Writer, opts *options, help *bool, ipv4 *bool, ipv6 *bool) *flag.FlagSet {
-	flags := flag.NewFlagSet("fast", flag.ContinueOnError)
+	flags := flag.NewFlagSet("faster", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.Usage = func() {
-		fmt.Fprintln(output, "fast tests your internet speed from the command line.")
+		fmt.Fprintln(output, "faster tests your internet speed from the command line.")
 		fmt.Fprintln(output)
 		fmt.Fprintln(output, "Usage:")
-		fmt.Fprintln(output, "  fast [flags]")
+		fmt.Fprintln(output, "  faster [flags]")
 		fmt.Fprintln(output)
 		fmt.Fprintln(output, "Flags:")
 		flags.PrintDefaults()

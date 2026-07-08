@@ -1,4 +1,4 @@
-# fast — VHS demo tape
+# faster — VHS demo tape
 # https://github.com/charmbracelet/vhs
 #
 # Generate the GIF with:
@@ -6,7 +6,7 @@
 
 Output faster.gif
 
-Require fast
+Require faster
 
 Set Shell bash
 Set FontFamily "JetBrains Mono"
@@ -25,7 +25,7 @@ Enter
 Show
 
 Sleep 750ms
-Type "fast"
+Type "faster"
 Sleep 750ms
 Enter
 

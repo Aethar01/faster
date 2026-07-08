@@ -17,6 +17,29 @@ import (
 
 const downloadPayloadBytes = 25 * 1024 * 1024
 
+type target struct {
+	Name     string   `json:"name"`
+	URL      string   `json:"url"`
+	Location location `json:"location"`
+}
+
+type location struct {
+	City    string `json:"city,omitempty"`
+	Country string `json:"country,omitempty"`
+}
+
+type clientInfo struct {
+	IP       string   `json:"ip,omitempty"`
+	ASN      any      `json:"asn,omitempty"`
+	ISP      string   `json:"isp,omitempty"`
+	Location location `json:"location,omitempty"`
+}
+
+type testConfig struct {
+	Targets []target   `json:"targets"`
+	Client  clientInfo `json:"client"`
+}
+
 // latencySamples is how many timed round trips we average to estimate
 // latency, after a warm-up request that we discard.
 const latencySamples = 5
@@ -70,37 +93,32 @@ func fetchToken() (string, error) {
 	return string(match[1]), nil
 }
 
-// targets asks fast.com for count URLs to download from. fast.com is powered by
+// speedtestConfig asks fast.com for count test URLs. fast.com is powered by
 // Netflix, so these point at the Netflix Open Connect servers nearest to us.
-func targets(count int, token string, preference ipPreference) ([]string, error) {
+func speedtestConfig(count int, token string, preference ipPreference) (testConfig, error) {
 	if token == "" {
 		var err error
 		token, err = fetchToken()
 		if err != nil {
-			return nil, err
+			return testConfig{}, err
 		}
 	}
 
 	url := fmt.Sprintf("https://api.fast.com/netflix/speedtest/v2?https=true&token=%s&urlCount=%d", token, count)
 	body, err := getPreferred(url, preference)
 	if err != nil {
-		return nil, err
+		return testConfig{}, err
 	}
 
-	var response struct {
-		Targets []struct {
-			URL string `json:"url"`
-		} `json:"targets"`
-	}
+	var response testConfig
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, err
+		return testConfig{}, err
+	}
+	if len(response.Targets) == 0 {
+		return testConfig{}, fmt.Errorf("no speed test targets")
 	}
 
-	urls := make([]string, len(response.Targets))
-	for i, target := range response.Targets {
-		urls[i] = target.URL
-	}
-	return urls, nil
+	return response, nil
 }
 
 // latency estimates the round-trip time to url by requesting a single byte
@@ -187,6 +205,79 @@ func downloadURL(raw string) string {
 
 	u.Path = strings.TrimSuffix(u.Path, "/speedtest") + fmt.Sprintf("/speedtest/range/0-%d", downloadPayloadBytes-1)
 	return u.String()
+}
+
+func targetLabel(targets []target) string {
+	if len(targets) == 0 {
+		return "unknown"
+	}
+
+	target := targets[0]
+	name := target.Name
+	if name == "" {
+		name = target.URL
+	}
+	if parsed, err := url.Parse(name); err == nil && parsed.Hostname() != "" {
+		name = parsed.Hostname()
+	}
+
+	location := target.Location.String()
+	if location != "" {
+		return fmt.Sprintf("%s (%s)", name, location)
+	}
+	return name
+}
+
+func (c clientInfo) Label() string {
+	details := []string{}
+	if c.ISP != "" {
+		details = append(details, c.ISP)
+	}
+	if asn := c.ASNString(); asn != "" {
+		details = append(details, asn)
+	}
+	if location := c.Location.String(); location != "" {
+		details = append(details, location)
+	}
+
+	if c.IP == "" {
+		return strings.Join(details, ", ")
+	}
+	if len(details) == 0 {
+		return c.IP
+	}
+	return fmt.Sprintf("%s (%s)", c.IP, strings.Join(details, ", "))
+}
+
+func (c clientInfo) ASNString() string {
+	var asn string
+	switch value := c.ASN.(type) {
+	case nil:
+		return ""
+	case string:
+		asn = value
+	case float64:
+		asn = fmt.Sprintf("%.0f", value)
+	default:
+		asn = fmt.Sprint(value)
+	}
+	if asn == "" || strings.EqualFold(asn, "null") {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToUpper(asn), "AS") {
+		return asn
+	}
+	return "AS" + asn
+}
+
+func (l location) String() string {
+	if l.City != "" && l.Country != "" {
+		return l.City + ", " + l.Country
+	}
+	if l.City != "" {
+		return l.City
+	}
+	return l.Country
 }
 
 // counter is an io.Writer that keeps a running total of how many bytes have

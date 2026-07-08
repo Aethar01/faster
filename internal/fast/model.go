@@ -31,6 +31,7 @@ var (
 	unitStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	sparkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(accentColor))
 	peakStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	metaStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	baseStyle  = lipgloss.NewStyle().Padding(1, 2)
 )
 
@@ -41,7 +42,7 @@ func tickCmd(t time.Time) tea.Msg {
 }
 
 type model struct {
-	targets []string
+	targets []target
 
 	bytes  *atomic.Int64
 	ctx    context.Context
@@ -53,22 +54,26 @@ type model struct {
 	samples []speedSample
 	speeds  []float64
 	peak    float64
+	client  string
+	server  string
 
 	done     bool
 	quitting bool
 }
 
-func newModel(targets []string) model {
+func newModel(config testConfig) model {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	start := time.Now()
 
 	return model{
-		targets: targets,
+		targets: config.Targets,
 		bytes:   &atomic.Int64{},
 		ctx:     ctx,
 		cancel:  cancel,
 		start:   start,
 		last:    speedSample{time: start},
+		client:  config.Client.Label(),
+		server:  targetLabel(config.Targets),
 	}
 }
 
@@ -78,8 +83,8 @@ func (m model) Init() tea.Cmd {
 
 // measure kicks off the parallel downloads that feed our byte counter.
 func (m model) measure() tea.Msg {
-	for _, url := range m.targets {
-		go download(m.ctx, url, m.bytes)
+	for _, target := range m.targets {
+		go download(m.ctx, target.URL, m.bytes)
 	}
 	return nil
 }
@@ -143,6 +148,16 @@ func (m model) View() string {
 			label += " " + peakUnit
 		}
 		s.WriteString(peakStyle.Render(label))
+	}
+	if m.client != "" || m.server != "" {
+		s.WriteString("\n")
+	}
+	if m.client != "" {
+		s.WriteString(metaStyle.Render("client " + m.client))
+		s.WriteString("\n")
+	}
+	if m.server != "" {
+		s.WriteString(metaStyle.Render("server " + m.server))
 	}
 
 	style := baseStyle

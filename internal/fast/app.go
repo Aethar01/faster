@@ -25,12 +25,12 @@ func Run(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	urls, err := targets(connections, opts.token, opts.ipPreference)
+	test, err := speedtestConfig(connections, opts.token, opts.ipPreference)
 	if err != nil {
 		return err
 	}
 
-	_, err = tea.NewProgram(newModel(urls)).Run()
+	_, err = tea.NewProgram(newModel(test)).Run()
 	return err
 }
 

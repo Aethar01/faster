@@ -1,5 +1,5 @@
 <p align="center">
-	<img src="vhs/demo.gif" alt="VHS recording of fast">
+	<img src="vhs/faster.gif" alt="VHS recording of fast">
 	<a href="https://vhs.charm.sh">
 		<img src="https://stuff.charm.sh/vhs/badge.svg">
 	</a>
